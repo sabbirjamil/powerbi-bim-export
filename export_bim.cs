@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using System.Net;
 using System.Text;
 using System.Threading.Tasks;
@@ -74,7 +76,7 @@ public class export_bim
             }
 
             // Export TMSL (this is the “model.bim style” JSON)
-            string tmslJson = db.ScriptCreateOrReplace();
+            string tmslJson = db.Model.ToJson();
 
             // Return base64 so n8n can save it as a file
             string base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(tmslJson));
