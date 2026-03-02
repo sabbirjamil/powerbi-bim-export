@@ -71,7 +71,7 @@ public class export_bim
                 .ExecuteAsync();
 
             // ---- Connect XMLA ----
-            // NOTE: XMLA usually needs WORKSPACE NAME (not GUID).
+            // NOTE: XMLA usually needs WORKSPACE NAME (not GUID)
             string xmlaEndpoint = $"powerbi://api.powerbi.com/v1.0/myorg/{workspaceId}";
 
             var server = new Server();
@@ -125,29 +125,33 @@ public class export_bim
                 return notFound;
             }
 
-            // ---- Export model as JSON ----
+            // ---- Export REAL TMSL JSON (BIM-style) ----
             string tmslJson;
             try
             {
-                var options = new System.Text.Json.JsonSerializerOptions
+                // Different library versions put ScriptCreateOrReplace on Database or Model.
+                // Use dynamic so this compiles either way.
+                dynamic dbDyn = db;
+                try
                 {
-                    WriteIndented = true
-                };
-
-                // NOTE: This is a JSON representation of the Tabular model object.
-                // If serialization ever fails, we return a clear error message.
-                tmslJson = System.Text.Json.JsonSerializer.Serialize(db.Model, options);
+                    tmslJson = dbDyn.ScriptCreateOrReplace();
+                }
+                catch
+                {
+                    dynamic modelDyn = db.Model;
+                    tmslJson = modelDyn.ScriptCreateOrReplace();
+                }
             }
-            catch (Exception serEx)
+            catch (Exception exportEx)
             {
-                _logger.LogError(serEx, "Model serialization failed");
-                var errSer = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errSer.WriteAsJsonAsync(new
+                _logger.LogError(exportEx, "TMSL export failed");
+                var errExp = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errExp.WriteAsJsonAsync(new
                 {
-                    error = "Failed to serialize model to JSON with System.Text.Json.",
-                    details = serEx.Message
+                    error = "Failed to export TMSL (model.bim) from XMLA.",
+                    details = exportEx.Message
                 });
-                return errSer;
+                return errExp;
             }
 
             // ---- Return base64 ----
