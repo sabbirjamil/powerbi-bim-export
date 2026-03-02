@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 using System.Net;
 using System.Text;
 using System.Threading.Tasks;
@@ -72,40 +71,56 @@ public class export_bim
                 .ExecuteAsync();
 
             // ---- Connect XMLA ----
-            // NOTE: this path usually needs WORKSPACE NAME (not GUID).
+            // NOTE: XMLA usually needs WORKSPACE NAME (not GUID).
             string xmlaEndpoint = $"powerbi://api.powerbi.com/v1.0/myorg/{workspaceId}";
 
             var server = new Server();
             server.Connect($"DataSource={xmlaEndpoint};Password={token.AccessToken};");
 
-            // ---- Find the dataset/model in XMLA ----
-            // 1) Exact match (case-insensitive)
-            var db = server.Databases
-                .FirstOrDefault(d => string.Equals(d.Name, datasetName, StringComparison.OrdinalIgnoreCase));
+            // ---- Find the dataset/model in XMLA (NO LINQ) ----
+            Database? db = null;
 
-            // 2) Contains match (case-insensitive) - helps when names differ slightly
-            if (db == null)
+            // 1) Exact match (case-insensitive)
+            foreach (Database d in server.Databases)
             {
-                db = server.Databases
-                    .FirstOrDefault(d => d.Name != null &&
-                                         d.Name.IndexOf(datasetName, StringComparison.OrdinalIgnoreCase) >= 0);
+                if (!string.IsNullOrWhiteSpace(d.Name) &&
+                    string.Equals(d.Name, datasetName, StringComparison.OrdinalIgnoreCase))
+                {
+                    db = d;
+                    break;
+                }
             }
 
-            // 3) If still not found, return list of actual XMLA model names
+            // 2) Contains match (case-insensitive)
             if (db == null)
             {
-                var available = server.Databases
-                    .Where(d => !string.IsNullOrWhiteSpace(d.Name))
-                    .Select(d => d.Name)
-                    .OrderBy(n => n)
-                    .ToArray();
+                foreach (Database d in server.Databases)
+                {
+                    if (!string.IsNullOrWhiteSpace(d.Name) &&
+                        d.Name.IndexOf(datasetName, StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        db = d;
+                        break;
+                    }
+                }
+            }
+
+            // 3) Still not found → return all model names
+            if (db == null)
+            {
+                var names = new string[server.Databases.Count];
+                int i = 0;
+                foreach (Database d in server.Databases)
+                {
+                    names[i++] = d.Name ?? "";
+                }
 
                 var notFound = req.CreateResponse(HttpStatusCode.NotFound);
                 await notFound.WriteAsJsonAsync(new
                 {
                     error = $"Dataset '{datasetName}' not found in XMLA workspace.",
                     hint = "Use one of the availableModels values as datasetName (these are the real XMLA model names).",
-                    availableModels = available
+                    availableModels = names
                 });
                 return notFound;
             }
@@ -119,6 +134,8 @@ public class export_bim
                     WriteIndented = true
                 };
 
+                // NOTE: This is a JSON representation of the Tabular model object.
+                // If serialization ever fails, we return a clear error message.
                 tmslJson = System.Text.Json.JsonSerializer.Serialize(db.Model, options);
             }
             catch (Exception serEx)
@@ -140,8 +157,8 @@ public class export_bim
             await ok.WriteAsJsonAsync(new
             {
                 fileName = $"{db.Name}.bim",
-                contentBase64 = base64,
-                resolvedModelName = db.Name
+                resolvedModelName = db.Name,
+                contentBase64 = base64
             });
 
             return ok;
