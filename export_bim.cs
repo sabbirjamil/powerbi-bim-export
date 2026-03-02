@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Text;
 using System.Threading.Tasks;
@@ -71,19 +72,40 @@ public class export_bim
                 .ExecuteAsync();
 
             // ---- Connect XMLA ----
-            // NOTE: this path usually needs WORKSPACE NAME (not GUID). If you pass GUID, connection can fail at runtime.
+            // NOTE: this path usually needs WORKSPACE NAME (not GUID).
             string xmlaEndpoint = $"powerbi://api.powerbi.com/v1.0/myorg/{workspaceId}";
 
             var server = new Server();
             server.Connect($"DataSource={xmlaEndpoint};Password={token.AccessToken};");
 
-            var db = server.Databases.Find(datasetName);
+            // ---- Find the dataset/model in XMLA ----
+            // 1) Exact match (case-insensitive)
+            var db = server.Databases
+                .FirstOrDefault(d => string.Equals(d.Name, datasetName, StringComparison.OrdinalIgnoreCase));
+
+            // 2) Contains match (case-insensitive) - helps when names differ slightly
             if (db == null)
             {
+                db = server.Databases
+                    .FirstOrDefault(d => d.Name != null &&
+                                         d.Name.IndexOf(datasetName, StringComparison.OrdinalIgnoreCase) >= 0);
+            }
+
+            // 3) If still not found, return list of actual XMLA model names
+            if (db == null)
+            {
+                var available = server.Databases
+                    .Where(d => !string.IsNullOrWhiteSpace(d.Name))
+                    .Select(d => d.Name)
+                    .OrderBy(n => n)
+                    .ToArray();
+
                 var notFound = req.CreateResponse(HttpStatusCode.NotFound);
                 await notFound.WriteAsJsonAsync(new
                 {
-                    error = $"Dataset '{datasetName}' not found in XMLA workspace."
+                    error = $"Dataset '{datasetName}' not found in XMLA workspace.",
+                    hint = "Use one of the availableModels values as datasetName (these are the real XMLA model names).",
+                    availableModels = available
                 });
                 return notFound;
             }
@@ -117,8 +139,9 @@ public class export_bim
             var ok = req.CreateResponse(HttpStatusCode.OK);
             await ok.WriteAsJsonAsync(new
             {
-                fileName = $"{datasetName}.bim",
-                contentBase64 = base64
+                fileName = $"{db.Name}.bim",
+                contentBase64 = base64,
+                resolvedModelName = db.Name
             });
 
             return ok;
