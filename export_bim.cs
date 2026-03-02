@@ -71,7 +71,7 @@ public class export_bim
                 .ExecuteAsync();
 
             // ---- Connect XMLA ----
-            // NOTE: XMLA usually needs WORKSPACE NAME (not GUID)
+            // NOTE: XMLA usually needs WORKSPACE NAME (not GUID).
             string xmlaEndpoint = $"powerbi://api.powerbi.com/v1.0/myorg/{workspaceId}";
 
             var server = new Server();
@@ -125,22 +125,12 @@ public class export_bim
                 return notFound;
             }
 
-            // ---- Export REAL TMSL JSON (BIM-style) ----
+            // ---- Export REAL JSON using Tabular serializer (no System.Text.Json on Tabular objects) ----
             string tmslJson;
             try
             {
-                // Different library versions put ScriptCreateOrReplace on Database or Model.
-                // Use dynamic so this compiles either way.
-                dynamic dbDyn = db;
-                try
-                {
-                    tmslJson = dbDyn.ScriptCreateOrReplace();
-                }
-                catch
-                {
-                    dynamic modelDyn = db.Model;
-                    tmslJson = modelDyn.ScriptCreateOrReplace();
-                }
+                // Works in environments where ScriptCreateOrReplace is not available.
+                tmslJson = Microsoft.AnalysisServices.Tabular.JsonSerializer.SerializeDatabase(db);
             }
             catch (Exception exportEx)
             {
