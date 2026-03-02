@@ -26,7 +26,7 @@ public class export_bim
         {
             // ---- Read request ----
             var requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-            using var doc = JsonDocument.Parse(requestBody);
+            using var doc = System.Text.Json.JsonDocument.Parse(requestBody);
 
             string workspaceId = doc.RootElement.TryGetProperty("workspaceId", out var wsProp)
                 ? (wsProp.GetString() ?? "")
@@ -71,8 +71,7 @@ public class export_bim
                 .ExecuteAsync();
 
             // ---- Connect XMLA ----
-            // NOTE: workspaceId here is assumed to be the workspace NAME used by XMLA path
-            // If you are passing workspace GUID, this might not work. If it fails, we'll map ID->Name.
+            // NOTE: this path usually needs WORKSPACE NAME (not GUID). If you pass GUID, connection can fail at runtime.
             string xmlaEndpoint = $"powerbi://api.powerbi.com/v1.0/myorg/{workspaceId}";
 
             var server = new Server();
@@ -90,16 +89,15 @@ public class export_bim
             }
 
             // ---- Export model as JSON ----
-            // Some Tabular objects may not serialize perfectly; we catch and return a clear error.
             string tmslJson;
             try
             {
-                var options = new JsonSerializerOptions
+                var options = new System.Text.Json.JsonSerializerOptions
                 {
                     WriteIndented = true
                 };
 
-                tmslJson = JsonSerializer.Serialize(db.Model, options);
+                tmslJson = System.Text.Json.JsonSerializer.Serialize(db.Model, options);
             }
             catch (Exception serEx)
             {
@@ -107,7 +105,7 @@ public class export_bim
                 var errSer = req.CreateResponse(HttpStatusCode.InternalServerError);
                 await errSer.WriteAsJsonAsync(new
                 {
-                    error = "Failed to serialize model to JSON. Library object may not be serializable with System.Text.Json.",
+                    error = "Failed to serialize model to JSON with System.Text.Json.",
                     details = serEx.Message
                 });
                 return errSer;
